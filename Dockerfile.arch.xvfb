@@ -32,6 +32,8 @@ RUN \
     xorgproto \
     xtrans
 
+COPY patches/arch/arch/xvfb/ /patches/
+
 RUN \
   echo "**** build xlibre xvfb ${XLIBRE_TAG} ****" && \
   git clone \
@@ -40,6 +42,11 @@ RUN \
     https://github.com/X11Libre/xserver.git \
     /tmp/xserver && \
   cd /tmp/xserver && \
+  for xvfb_patch in /patches/*.patch; do \
+    [ -e "${xvfb_patch}" ] || continue; \
+    echo "applying $(basename "${xvfb_patch}")" && \
+    git apply "${xvfb_patch}"; \
+  done && \
   meson setup build \
     --prefix=/usr \
     --sysconfdir=/etc \
