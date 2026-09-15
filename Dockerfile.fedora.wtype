@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+
+FROM ghcr.io/linuxserver/baseimage-fedora:44 AS wtype-builder
+
+RUN \
+  echo "**** install wtype build deps ****" && \
+  dnf install -y \
+    automake \
+    cmake \
+    gcc \
+    gcc-c++ \
+    git \
+    libxkbcommon-devel \
+    make \
+    meson \
+    ninja-build \
+    pkgconf-pkg-config \
+    wayland-devel
+
+RUN \
+  echo "**** build wtype ****" && \
+  git clone \
+    https://github.com/linuxserver/waylandtyper.git \
+    /tmp/wtype && \
+  cd /tmp/wtype && \
+  make && \
+  echo "**** stage layer ****" && \
+  mkdir -p /buildout/usr/bin && \
+  cp wtype /buildout/usr/bin/wtype
+
+FROM scratch
+COPY --from=wtype-builder /buildout/ /

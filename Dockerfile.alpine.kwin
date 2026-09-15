@@ -1,0 +1,63 @@
+# syntax=docker/dockerfile:1
+
+FROM ghcr.io/linuxserver/baseimage-alpine:3.24 AS kwin-builder
+
+ARG DISTRO_VERSION
+ARG APORTS_BRANCH=3.24-stable
+
+COPY patches/alpine/${DISTRO_VERSION}/kwin/ /build/patches/
+
+RUN \
+  echo "**** install build packages ****" && \
+  apk add --no-cache \
+    build-base \
+    xz && \
+  echo "**** fetch alpine kwin build recipe ****" && \
+  mkdir -p /build/src && \
+  cd /build/src && \
+  curl -fLo APKBUILD \
+    https://raw.githubusercontent.com/alpinelinux/aports/${APORTS_BRANCH}/community/kwin/APKBUILD && \
+  . ./APKBUILD && \
+  echo "**** install build deps ****" && \
+  apk add --no-cache \
+    ${makedepends} && \
+  echo "**** fetch kwin ${pkgver} source ****" && \
+  curl -fLo \
+    kwin-${pkgver}.tar.xz \
+    ${source} && \
+  echo "${sha512sums}" | grep "kwin-${pkgver}.tar.xz" | sha512sum -c && \
+  tar xf kwin-${pkgver}.tar.xz && \
+  cd kwin-${pkgver}/ && \
+  echo "**** build patched kwin targets ****" && \
+  for kwin_patch in /build/patches/*.patch; do \
+    [ -e "${kwin_patch}" ] || continue; \
+    echo "applying $(basename "${kwin_patch}")" && \
+    patch -p1 < "${kwin_patch}"; \
+  done && \
+  CFLAGS="-O2 -g1" CXXFLAGS="-O2 -g1" \
+  cmake -B build -G Ninja \
+    -DBUILD_TESTING=OFF \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBDIR=lib && \
+  cmake --build build --target \
+    kwin \
+    screencast && \
+  echo "**** stage layer ****" && \
+  LIBDIR=/buildout/usr/lib && \
+  mkdir -p \
+    ${LIBDIR}/qt6/plugins/kwin/plugins && \
+  cp \
+    $(find build -name 'libkwin.so.6.*' -type f) \
+    ${LIBDIR}/ && \
+  cp \
+    $(find build -name 'screencast.so' -type f) \
+    ${LIBDIR}/qt6/plugins/kwin/plugins/ && \
+  strip --strip-unneeded \
+    --remove-section=.comment \
+    --remove-section=.note \
+    ${LIBDIR}/libkwin.so.6.* \
+    ${LIBDIR}/qt6/plugins/kwin/plugins/screencast.so
+
+FROM scratch
+COPY --from=kwin-builder /buildout/ /

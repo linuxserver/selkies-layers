@@ -1,0 +1,211 @@
+name: Build Layers
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+  schedule:
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+    inputs:
+      distro:
+        description: 'Comma separated distro filter (empty = all)'
+        required: false
+        default: ''
+      layer:
+        description: 'Comma separated layer filter (empty = all)'
+        required: false
+        default: ''
+      arch:
+        description: 'Comma separated arch filter: amd64,arm64 (empty = both)'
+        required: false
+        default: ''
+      push:
+        description: 'Push images to the registry'
+        type: boolean
+        required: false
+        default: true
+
+env:
+  LAYERS_IMAGE: ghcr.io/linuxserver/selkies-layers
+  RUNNER_AMD64: ubuntu-24.04
+  RUNNER_ARM64: ubuntu-24.04-arm
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: Generate matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      builds: ${{ steps.matrix.outputs.builds }}
+      manifests: ${{ steps.matrix.outputs.manifests }}
+      push: ${{ steps.push.outputs.push }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide whether to push
+        id: push
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.push }}" != "true" ]]; then
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate matrix
+        id: matrix
+        run: |
+          python3 scripts/matrix.py --github \
+            --distro "${{ inputs.distro }}" \
+            --layer "${{ inputs.layer }}" \
+            --arch "${{ inputs.arch }}"
+
+      - name: Summary
+        env:
+          BUILDS: ${{ steps.matrix.outputs.builds }}
+          PUSH: ${{ steps.push.outputs.push }}
+        run: |
+          python3 - >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, os
+          print("## Build matrix\n")
+          print(f"Push: `{os.environ['PUSH']}`\n")
+          print("| Job | Dockerfile | Platform | Runner | Tag |")
+          print("| --- | --- | --- | --- | --- |")
+          for b in json.loads(os.environ["BUILDS"]):
+              print(f"| {b['name']} | {b['dockerfile']} | {b['platform']} | {b['runner']} | `{b['tag']}` |")
+          PY
+
+  build:
+    name: ${{ matrix.name }}
+    needs: matrix
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.matrix.outputs.builds) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          df -h / | tail -1
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /usr/local/.ghcup \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/share/swift \
+            /usr/local/share/powershell \
+            /usr/lib/jvm 2>/dev/null || true
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          df -h / | tail -1
+
+      - name: Log in to ghcr.io
+        if: needs.matrix.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.tag }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            DISTRO_VERSION=${{ matrix.version }}
+          tags: ${{ matrix.image }}
+          push: ${{ needs.matrix.outputs.push == 'true' }}
+          load: ${{ needs.matrix.outputs.push != 'true' }}
+          no-cache: true
+          pull: true
+          provenance: false
+          sbom: false
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=selkies-layers ${{ matrix.layer }} (${{ matrix.distro }} ${{ matrix.version }})
+            org.opencontainers.image.description=Prebuilt ${{ matrix.layer }} layer for linuxserver ${{ matrix.distro }} ${{ matrix.version }} selkies images
+            io.linuxserver.selkies-layers.distro=${{ matrix.distro }}
+            io.linuxserver.selkies-layers.version=${{ matrix.version }}
+            io.linuxserver.selkies-layers.layer=${{ matrix.layer }}
+            io.linuxserver.selkies-layers.arch=${{ matrix.arch }}
+
+  manifest:
+    name: manifest ${{ matrix.name }}
+    needs:
+      - matrix
+      - build
+    if: ${{ !cancelled() && needs.matrix.outputs.push == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.matrix.outputs.manifests) }}
+    steps:
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Verify arch images exist
+        run: |
+          set -euo pipefail
+          missing=0
+          for src in ${{ matrix.sources }}; do
+            if docker buildx imagetools inspect "${src}" >/dev/null 2>&1; then
+              echo "ok      ${src}"
+            else
+              echo "::error::missing ${src} (its build job failed or was skipped)"
+              missing=1
+            fi
+          done
+          exit ${missing}
+
+      - name: Create ${{ matrix.tag }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "${{ matrix.image }}" \
+            ${{ matrix.sources }}
+          docker buildx imagetools inspect "${{ matrix.image }}" | tee /tmp/manifest.txt
+          {
+            echo "### ${{ matrix.tag }}"
+            echo
+            echo '```'
+            cat /tmp/manifest.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

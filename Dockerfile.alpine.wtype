@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1
+
+FROM ghcr.io/linuxserver/baseimage-alpine:3.24 AS wtype-builder
+
+RUN \
+  echo "**** install wtype build deps ****" && \
+  apk add --no-cache \
+    alpine-sdk \
+    cmake \
+    git \
+    libxkbcommon-dev \
+    meson \
+    ninja-build \
+    pkgconf \
+    wayland-dev
+
+RUN \
+  echo "**** build wtype ****" && \
+  git clone \
+    https://github.com/linuxserver/waylandtyper.git \
+    /tmp/wtype && \
+  cd /tmp/wtype && \
+  make && \
+  echo "**** stage layer ****" && \
+  mkdir -p /buildout/usr/bin && \
+  cp wtype /buildout/usr/bin/wtype
+
+FROM scratch
+COPY --from=wtype-builder /buildout/ /

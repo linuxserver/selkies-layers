@@ -1,0 +1,6 @@
+alpine: "3.24"
+arch: "arch"
+debian: "trixie"
+ubuntu: "resolute"
+fedora: "44"
+kali: "kali"

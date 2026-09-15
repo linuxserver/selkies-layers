@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+
+FROM ghcr.io/linuxserver/baseimage-debian:kali AS wtype-builder
+
+RUN \
+  echo "**** install wtype build deps ****" && \
+  apt-get update && \
+  DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
+    build-essential \
+    cmake \
+    git \
+    libwayland-dev \
+    libxkbcommon-dev \
+    meson \
+    ninja-build \
+    pkg-config
+
+RUN \
+  echo "**** build wtype ****" && \
+  git clone \
+    https://github.com/linuxserver/waylandtyper.git \
+    /tmp/wtype && \
+  cd /tmp/wtype && \
+  make && \
+  echo "**** stage layer ****" && \
+  mkdir -p /buildout/usr/bin && \
+  cp wtype /buildout/usr/bin/wtype
+
+FROM scratch
+COPY --from=wtype-builder /buildout/ /

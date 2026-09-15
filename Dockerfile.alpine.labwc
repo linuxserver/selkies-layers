@@ -1,0 +1,66 @@
+# syntax=docker/dockerfile:1
+
+FROM ghcr.io/linuxserver/baseimage-alpine:3.24 AS labwc-builder
+
+ARG DISTRO_VERSION
+
+RUN \
+  echo "**** install labwc build deps ****" && \
+  apk add --no-cache \
+    build-base \
+    cairo-dev \
+    eudev-dev \
+    gettext-dev \
+    git \
+    glib-dev \
+    glslang-dev \
+    hwdata-dev \
+    libdisplay-info-dev \
+    libdrm-dev \
+    libinput-dev \
+    libliftoff-dev \
+    librsvg-dev \
+    libsfdo-dev \
+    libx11-dev \
+    libxcb-dev \
+    libxkbcommon-dev \
+    libxml2-dev \
+    mesa-dev \
+    meson \
+    ninja \
+    pango-dev \
+    pixman-dev \
+    pkgconf \
+    scdoc \
+    seatd \
+    vulkan-headers \
+    vulkan-loader-dev \
+    wayland-dev \
+    wayland-protocols \
+    wlroots0.19-dev \
+    xcb-util-errors-dev \
+    xcb-util-renderutil-dev \
+    xcb-util-wm-dev \
+    xwayland-dev
+
+COPY patches/alpine/${DISTRO_VERSION}/labwc/ /patches/
+
+RUN \
+  echo "**** build labwc 0.9.7 ****" && \
+  git clone https://github.com/labwc/labwc.git /tmp/labwc && \
+  cd /tmp/labwc && \
+  git checkout 0.9.7 && \
+  for labwc_patch in /patches/*.patch; do \
+    [ -e "${labwc_patch}" ] || continue; \
+    echo "applying $(basename "${labwc_patch}")" && \
+    git apply "${labwc_patch}"; \
+  done && \
+  meson setup build --prefix=/usr --libdir=lib -Dxwayland=enabled -Dnls=enabled && \
+  ninja -C build && \
+  ninja -C build install && \
+  echo "**** stage layer ****" && \
+  mkdir -p /buildout/usr/bin && \
+  cp /usr/bin/labwc /buildout/usr/bin/labwc
+
+FROM scratch
+COPY --from=labwc-builder /buildout/ /
