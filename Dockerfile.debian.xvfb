@@ -1,0 +1,78 @@
+# syntax=docker/dockerfile:1
+
+FROM ghcr.io/linuxserver/baseimage-debian:trixie AS xvfb-builder
+
+ARG XLIBRE_TAG=xlibre-xserver-25.2.2
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN \
+  echo "**** install xlibre build deps ****" && \
+  apt-get update && \
+  apt-get install --no-install-recommends -y \
+    ca-certificates \
+    gcc \
+    git \
+    libaudit-dev \
+    libbsd-dev \
+    libdrm-dev \
+    libepoxy-dev \
+    libgbm-dev \
+    libpixman-1-dev \
+    libselinux1-dev \
+    libssl-dev \
+    libx11-dev \
+    libxau-dev \
+    libxcvt-dev \
+    libxdmcp-dev \
+    libxext-dev \
+    libxfont-dev \
+    libxkbfile-dev \
+    libxshmfence-dev \
+    mesa-common-dev \
+    meson \
+    ninja-build \
+    pkg-config \
+    x11proto-dev \
+    xtrans-dev
+
+RUN \
+  echo "**** build xlibre xvfb ${XLIBRE_TAG} ****" && \
+  git clone \
+    --depth 1 \
+    --branch ${XLIBRE_TAG} \
+    https://github.com/X11Libre/xserver.git \
+    /tmp/xserver && \
+  cd /tmp/xserver && \
+  meson setup build \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --buildtype=release \
+    -Dxvfb=true \
+    -Dglamor=true \
+    -Dgbm=true \
+    -Ddri3=true \
+    -Dglx=true \
+    -Dxcsecurity=true \
+    -Dxselinux=true \
+    -Dxorg=false \
+    -Dxnest=false \
+    -Dxephyr=false \
+    -Dxwin=false \
+    -Dxquartz=false \
+    -Dudev=false \
+    -Dudev_kms=false \
+    -Dsystemd_logind=false \
+    -Dxkb_dir=/usr/share/X11/xkb \
+    -Dxkb_output_dir=/var/lib/xkb \
+    -Dxkb_bin_dir=/usr/bin \
+    -Ddefault_font_path=/usr/share/fonts/X11/misc,/usr/share/fonts/X11/cyrillic,/usr/share/fonts/X11/100dpi/:unscaled,/usr/share/fonts/X11/75dpi/:unscaled,/usr/share/fonts/X11/Type1,/usr/share/fonts/X11/100dpi,/usr/share/fonts/X11/75dpi,built-ins \
+    -Ddocs=false \
+    -Ddevel-docs=false && \
+  ninja -C build hw/vfb/Xvfb && \
+  echo "**** stage layer ****" && \
+  install -Dm755 build/hw/vfb/Xvfb /buildout/usr/bin/Xvfb && \
+  /buildout/usr/bin/Xvfb -help 2>&1 | grep -q -- '-glamor'
+
+FROM scratch
+COPY --from=xvfb-builder /buildout/ /

@@ -12,6 +12,7 @@ Images live at `ghcr.io/linuxserver/selkies-layers`.
 | `wtype` | linuxserver waylandtyper build (`/usr/bin/wtype`) | alpine, arch, debian, ubuntu, fedora, kali |
 | `selkies-desktop` | selkies-desktop (`/usr/bin/selkies-desktop`) | alpine, arch, debian, ubuntu, fedora, kali |
 | `kwin` | patched `libkwin.so.6.*` and the kwin `screencast.so` plugin, built from the distro's own kwin source package so it matches the packaged version to support dual monitors | alpine, arch, fedora, ubuntu, kali |
+| `xvfb` | XLibre Xvfb (`/usr/bin/Xvfb`) built from the `xlibre-xserver-25.2.2` tag with glamor + DRI3 (`-glamor -dri /dev/dri/renderD###`), replacing the distro Xvfb | alpine, arch, debian, ubuntu, fedora, kali |
 
 Every file inside a layer image sits at its final path, so downstream usage is
 a single copy:
