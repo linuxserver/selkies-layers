@@ -12,7 +12,7 @@ Images live at `ghcr.io/linuxserver/selkies-layers`.
 | `wtype` | linuxserver waylandtyper build (`/usr/bin/wtype`) | alpine, arch, debian, ubuntu, fedora, kali |
 | `selkies-desktop` | selkies-desktop (`/usr/bin/selkies-desktop`) | alpine, arch, debian, ubuntu, fedora, kali |
 | `kwin` | patched `libkwin.so.6.*` and the kwin `screencast.so` plugin, built from the distro's own kwin source package so it matches the packaged version to support dual monitors | alpine, arch, fedora, ubuntu, kali |
-| `xvfb` | XLibre Xvfb (`/usr/bin/Xvfb`) from the `xlibre-xserver-25.2.2` tag with glamor + DRI3 (`-glamor -dri /dev/dri/renderD###`), patched so the screen pixmap lives on the GPU and the framebuffer follows RandR resizes (no `-screen` needed) | alpine, arch, debian, ubuntu, fedora, kali |
+| `xvfb` | XLibre Xvfb (`/usr/bin/Xvfb`) from the `xlibre-xserver-25.2.2` tag with glamor + DRI3 (`-glamor -dri /dev/dri/renderD###`), patched so the screen pixmap lives on the GPU and the framebuffer follows RandR resizes (no `-screen` needed), and to start with 4 CRTCs whose spare outputs (`screen_1`…) stay disconnected until a client sets their `Connected` output property, so Selkies adds a display as a real monitor with a CRTC of its own | alpine, arch, debian, ubuntu, fedora, kali |
 
 Every file inside a layer image sits at its final path, so downstream usage is
 a single copy:
